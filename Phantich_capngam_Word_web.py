@@ -78,7 +78,7 @@ st.caption("Phiên bản chạy trên nền Web - Tự động thẩm định h�
 # Sidebar cấu hình
 with st.sidebar:
     st.header("⚙️ Cấu hình hệ thống")
-    api_key = st.text_input("Nhập Google Gemini API Key:", value="IzaSyBGxiuslpCbb3S-6kC-zgtbnWy_erBTSNk", type="password")
+    api_key = st.text_input("Nhập Google Gemini API Key:", value="Ma_API", type="password")
     st.divider()
     st.markdown("**Hồ sơ yêu cầu:**")
     st.markdown("- Quy trình: `QT-CT-02` (PDF)")
