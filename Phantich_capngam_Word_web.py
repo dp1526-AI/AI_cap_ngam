@@ -1,9 +1,12 @@
-import streamlit as st
-from google import genai
-from google.genai import types
-import time, os, re, json, io, tempfile
+import time, os, re, threading, json, shutil, tempfile
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext
 from docx import Document
 from docx.shared import Pt
+
+# Khai báo thư viện Google GenAI SDK mới
+from google import genai
+from google.genai import types
 
 st.set_page_config(
     page_title="AI Phân Tích & Thẩm Định Cáp Ngầm EVNHCMC",
