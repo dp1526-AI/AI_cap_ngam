@@ -5,8 +5,8 @@ from docx import Document
 from docx.shared import Pt
 
 # Khai báo thư viện Google GenAI SDK mới
-from google import genai
-from google.genai import types
+import google_genai as genai
+from google_genai import types
 
 st.set_page_config(
     page_title="AI Phân Tích & Thẩm Định Cáp Ngầm EVNHCMC",
