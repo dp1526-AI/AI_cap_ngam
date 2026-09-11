@@ -1,6 +1,6 @@
 import time, os, re, threading, json
-import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+#import tkinter as tk
+#from tkinter import filedialog, messagebox, scrolledtext
 from docx import Document
 from docx.shared import Pt
 from google import genai
