@@ -281,7 +281,7 @@ class CableAIApp:
         
         self.run_btn.config(state=tk.NORMAL)
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = CableAIApp(root)
-    root.mainloop()
+#if __name__ == "__main__":
+#    root = tk.Tk()
+#    app = CableAIApp(root)
+#    root.mainloop()
