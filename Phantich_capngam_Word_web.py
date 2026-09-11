@@ -17,6 +17,14 @@ if not os.path.exists(KNOWLEDGE_FILE):
     with open(KNOWLEDGE_FILE, "w", encoding="utf-8") as f:
         json.dump([], f, ensure_ascii=False, indent=4)
 
+# Quản lý trạng thái thẩm định file
+if "qt_valid" not in st.session_state:
+    st.session_state.qt_valid = False
+    st.session_state.qt_name = ""
+if "bb_valid" not in st.session_state:
+    st.session_state.bb_valid = False
+    st.session_state.bb_name = ""
+
 def save_to_knowledge_base(record_info):
     try:
         with open(KNOWLEDGE_FILE, "r+", encoding="utf-8") as f:
@@ -68,182 +76,235 @@ def upload_bytes_to_gemini(client, uploaded_file):
     os.remove(tmp_path)
     return file
 
+def check_qt_validity(client, uploaded_file):
+    try:
+        pdf_file = upload_bytes_to_gemini(client, uploaded_file)
+        prompt = """
+        Kiểm tra tài liệu PDF này có phải là Quy trình thử nghiệm cáp ngầm 'QT-CT-02' của EVNHCMC hay không.
+        Trả về DUY NHẤT định dạng JSON:
+        {"is_qt_ct_02": true/false, "reason": "Giải thích ngắn gọn"}
+        """
+        chat = client.chats.create(
+            model="gemini-2.5-flash",
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        res = chat.send_message(message=[pdf_file, prompt])
+        match = re.search(r'\{.*\}', res.text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return {"is_qt_ct_02": False, "reason": "Không thể trích xuất JSON"}
+    except Exception as e:
+        return {"is_qt_ct_02": False, "reason": str(e)}
+
+def check_bb_validity(client, uploaded_file):
+    try:
+        pdf_file = upload_bytes_to_gemini(client, uploaded_file)
+        prompt = """
+        Kiểm tra tài liệu PDF này có phải là Biên bản thử nghiệm cáp ngầm (đặc biệt là thí nghiệm CBM, Phóng điện cục bộ PD, hoặc đo đạc cáp ngầm trung/cao thế) hay không.
+        Trả về DUY NHẤT định dạng JSON:
+        {"is_cable_report": true/false, "reason": "Giải thích ngắn gọn"}
+        """
+        chat = client.chats.create(
+            model="gemini-2.5-flash",
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        res = chat.send_message(message=[pdf_file, prompt])
+        match = re.search(r'\{.*\}', res.text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return {"is_cable_report": False, "reason": "Không thể trích xuất JSON"}
+    except Exception as e:
+        return {"is_cable_report": False, "reason": str(e)}
+
+# --- GIAO DIỆN CHÍNH ---
 st.title("⚡ AI Phân Tích & Thẩm Định Biên Bản Cáp Ngầm - EVNHCMC")
-st.caption("Phiên bản Web SDK mới - Hỗ trợ toàn diện API Key dạng AQ. và AIzaSy")
+st.caption("Hệ thống thẩm định tức thì tài liệu đầu vào & Đối soát quy trình QT-CT-02")
 
 with st.sidebar:
     st.header("⚙️ Cấu hình hệ thống")
     api_key = st.text_input("Nhập Google Gemini API Key (AQ... hoặc AIzaSy...):", type="password")
     st.divider()
-    st.markdown("**Hồ sơ yêu cầu:**")
-    st.markdown("- Quy trình: `QT-CT-02` (PDF)")
-    st.markdown("- Biên bản: `Biên bản CBM/PD` (PDF)")
+    st.markdown("**Yêu cầu tệp:**")
+    st.markdown("- Quy trình: `QT-CT-02`")
+    st.markdown("- Biên bản: `Biên bản thử nghiệm / CBM cáp ngầm`")
 
 col1, col2 = st.columns(2)
 
+# --- CỘT 1: UPLOAD VÀ CHECK NGAY FILE QUY TRÌNH ---
 with col1:
     st.subheader("1. File Quy trình kỹ thuật")
     uploaded_qt = st.file_uploader("Tải lên Quy trình thử nghiệm (PDF)", type=["pdf"], key="qt_file")
+    
+    if uploaded_qt:
+        if not api_key:
+            st.warning("⚠️ Vui lòng nhập API Key ở thanh bên trái trước để hệ thống thẩm định file.")
+        else:
+            # Kiểm tra nếu là file mới tải lên
+            if st.session_state.qt_name != uploaded_qt.name:
+                with st.spinner("🔍 Đang thẩm định file Quy trình QT-CT-02..."):
+                    client_temp = genai.Client(api_key=api_key)
+                    res_qt = check_qt_validity(client_temp, uploaded_qt)
+                    if res_qt.get("is_qt_ct_02"):
+                        st.session_state.qt_valid = True
+                        st.session_state.qt_name = uploaded_qt.name
+                        st.session_state.qt_msg = res_qt.get("reason", "Quy trình hợp lệ.")
+                    else:
+                        st.session_state.qt_valid = False
+                        st.session_state.qt_name = uploaded_qt.name
+                        st.session_state.qt_msg = res_qt.get("reason", "Không phải quy trình QT-CT-02.")
+            
+            if st.session_state.qt_valid:
+                st.success(f"✅ Hợp lệ: {st.session_state.qt_msg}")
+            else:
+                st.error(f"❌ SAI QUY TRÌNH: {st.session_state.qt_msg}\n\n👉 Vui lòng tải lại đúng file quy trình QT-CT-02!")
 
+# --- CỘT 2: UPLOAD VÀ CHECK NGAY FILE BIÊN BẢN ---
 with col2:
     st.subheader("2. File Biên bản hiện trường")
-    uploaded_bb = st.file_uploader("Tải lên Biên bản CBM/PD (PDF)", type=["pdf"], key="bb_file")
-
-if st.button("🚀 BẮT ĐẦU THẨM ĐỊNH & PHÂN TÍCH", type="primary", use_container_width=True):
-    if not api_key:
-        st.error("❌ Vui lòng nhập API Key ở thanh bên trái.")
-    elif not uploaded_qt or not uploaded_bb:
-        st.warning("⚠️ Vui lòng tải lên đầy đủ cả 2 tệp: File Quy trình và File Biên bản!")
-    else:
-        status_box = st.status("Đang tiến hành xử lý hồ sơ...", expanded=True)
-        
-        try:
-            client = genai.Client(api_key=api_key)
-
-            status_box.write("⏳ Đang nạp tài liệu lên máy chủ AI Cloud...")
-            pdf_qt = upload_bytes_to_gemini(client, uploaded_qt)
-            pdf_bb = upload_bytes_to_gemini(client, uploaded_bb)
-
-            system_instruction = """
-            Bạn là Chuyên gia Kiểm định Cáp ngầm Cao thế & Trung thế Bậc cao của EVNHCMC.
-            Nhiệm vụ: Phân tích chỉ tiêu Phóng điện cục bộ (CBM/PD), đối soát nghiêm ngặt quy trình QT-CT-02
-            và thẩm định ĐỘ TRUNG THỰC/CHÍNH XÁC của phần kết luận trên biên bản hiện trường.
-            """
-
-            status_box.write("🔍 Đang kiểm tra tính hợp lệ của hai tệp đầu vào...")
-            chk_prompt = """
-            Hãy kiểm tra 2 tệp PDF và trả về duy nhất định dạng JSON:
-            {
-                "is_qt_ct_02": true/false,
-                "is_cbm_pd": true/false,
-                "reason": "Mô tả lý do cụ thể nếu có file không đúng"
-            }
-            """
-            verify_res = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[pdf_qt, pdf_bb, chk_prompt],
-                config=types.GenerateContentConfig(
-                    system_instruction="Bạn là trợ lý kiểm tra hồ sơ kỹ thuật.",
-                    response_mime_type="application/json"
-                )
-            )
-            
-            valid = True
-            try:
-                chk_data = json.loads(verify_res.text)
-                if not chk_data.get("is_qt_ct_02"):
-                    status_box.update(label="Thẩm định thất bại!", state="error")
-                    st.error(f"❌ **Lỗi File Quy Trình:** Tệp 1 không phải là quy trình QT-CT-02. Chi tiết: {chk_data.get('reason')}")
-                    valid = False
-                elif not chk_data.get("is_cbm_pd"):
-                    status_box.update(label="Thẩm định thất bại!", state="error")
-                    st.error(f"❌ **Lỗi File Biên Bản:** Tệp 2 không phải là biên bản thử nghiệm CBM (PD). Chi tiết: {chk_data.get('reason')}")
-                    valid = False
-            except Exception:
-                pass
-            
-            if valid:
-                status_box.write("✅ Hồ sơ hợp lệ! Đang bóc tách thông số và thẩm định kết luận...")
-                
-                history_context = ""
-                if os.path.exists(KNOWLEDGE_FILE):
-                    with open(KNOWLEDGE_FILE, "r", encoding="utf-8") as f:
-                        hist = json.load(f)
-                        if hist:
-                            history_context = f"\n[LỊCH SỬ ĐỐI SOÁT ĐỂ ĐẢM BẢO NHẤT QUÁN]:\n{json.dumps(hist[-3:], ensure_ascii=False)}"
-
-                main_prompt = f"""
-                Dựa vào Quy trình QT-CT-02 (Tệp 1) và Biên bản Thử nghiệm Phóng điện cục bộ CBM (Tệp 2), hãy thực hiện phân tích chuyên sâu.
-                {history_context}
-
-                Hãy xuất thông tin ĐÚNG BẮT BUỘC theo các thẻ sau:
-
-                [THONG_TIN_CHUNG]
-                Tên tuyến cáp, chủng loại, chiều dài, điện áp vận hành, đơn vị thực hiện, ngày thử nghiệm.
-                [/THONG_TIN_CHUNG]
-
-                [DANH_GIA]
-                Phân tích số liệu CBM chi tiết: Điện áp khởi phát PD, Biên độ phóng điện tối đa (pC hoặc dBmV), vị trí điểm PD (m), tần suất xung. So sánh cụ thể với ngưỡng tiêu chuẩn trong QT-CT-02.
-                [/DANH_GIA]
-
-                [DANH_GIA_KET_LUAN]
-                - Trích dẫn nguyên văn "Nội dung Kết luận" ghi trên Biên bản hiện trường.
-                - Đánh giá Chuyên gia: So sánh kết luận gốc đó với dữ liệu kỹ thuật thực tế đo được.
-                - Khẳng định rõ ràng: Kết luận trên biên bản là KHỚP (Chính xác) hay KHÔNG KHỚP (Sai lệch/Bỏ sót rủi ro/Chẩn đoán Đạt hay Không Đạt sai quy trình QT-CT-02). Nêu rõ lý do.
-                [/DANH_GIA_KET_LUAN]
-
-                [NHAN_DINH]
-                Nhận định chuyên môn về mức độ lão hóa cách điện, rủi ro phóng điện hộp nối/đầu cáp, dự báo nguy cơ sự cố.
-                [/NHAN_DINH]
-
-                [KHUYEN_NGHI]
-                Đề xuất vận hành (Rút ngắn chu kỳ CBM, sửa chữa hộp nối, giảm tải hoặc thay thế).
-                [/KHUYEN_NGHI]
-                """
-
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[pdf_qt, pdf_bb, main_prompt],
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction
-                    )
-                )
-                text = response.text
-
-                status_box.update(label="Thẩm định hoàn tất thành công!", state="complete", expanded=False)
-
-                def extract_content(tag, full_text):
-                    pattern = rf"\[{tag}\](.*?)\[/{tag}\]"
-                    match = re.search(pattern, full_text, re.DOTALL)
-                    return match.group(1).strip() if match else "Dữ liệu trống"
-
-                data = {
-                    "{{THONG_TIN_CHUNG}}": extract_content("THONG_TIN_CHUNG", text),
-                    "{{DANH_GIA}}": extract_content("DANH_GIA", text),
-                    "{{DANH_GIA_KET_LUAN}}": extract_content("DANH_GIA_KET_LUAN", text),
-                    "{{NHAN_DINH}}": extract_content("NHAN_DINH", text),
-                    "{{KHUYEN_NGHI}}": extract_content("KHUYEN_NGHI", text)
-                }
-
-                save_to_knowledge_base({
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "file_bb": uploaded_bb.name,
-                    "evaluation_match": data["{{DANH_GIA_KET_LUAN}}"][:250]
-                })
-
-                st.subheader("📑 Kết quả thẩm định & Đối soát kỹ thuật")
-                
-                with st.expander("📌 1. Thông tin chung tuyến cáp", expanded=True):
-                    st.write(data["{{THONG_TIN_CHUNG}}"])
-
-                with st.expander("📊 2. Đánh giá số liệu đo CBM so với QT-CT-02", expanded=True):
-                    st.write(data["{{DANH_GIA}}"])
-
-                with st.expander("🔍 3. Thẩm định tính chuẩn xác của Kết luận Biên bản", expanded=True):
-                    if "KHÔNG KHỚP" in data["{{DANH_GIA_KET_LUAN}}"].upper():
-                        st.error(data["{{DANH_GIA_KET_LUAN}}"])
+    uploaded_bb = st.file_uploader("Tải lên Biên bản thử nghiệm cáp (PDF)", type=["pdf"], key="bb_file")
+    
+    if uploaded_bb:
+        if not api_key:
+            st.warning("⚠️ Vui lòng nhập API Key ở thanh bên trái trước để hệ thống thẩm định file.")
+        else:
+            if st.session_state.bb_name != uploaded_bb.name:
+                with st.spinner("🔍 Đang thẩm định file Biên bản thử nghiệm cáp ngầm..."):
+                    client_temp = genai.Client(api_key=api_key)
+                    res_bb = check_bb_validity(client_temp, uploaded_bb)
+                    if res_bb.get("is_cable_report"):
+                        st.session_state.bb_valid = True
+                        st.session_state.bb_name = uploaded_bb.name
+                        st.session_state.bb_msg = res_bb.get("reason", "Biên bản hợp lệ.")
                     else:
-                        st.success(data["{{DANH_GIA_KET_LUAN}}"])
+                        st.session_state.bb_valid = False
+                        st.session_state.bb_name = uploaded_bb.name
+                        st.session_state.bb_msg = res_bb.get("reason", "Không phải biên bản thử nghiệm cáp ngầm.")
+            
+            if st.session_state.bb_valid:
+                st.success(f"✅ Hợp lệ: {st.session_state.bb_msg}")
+            else:
+                st.error(f"❌ SAI BIÊN BẢN: {st.session_state.bb_msg}\n\n👉 Vui lòng tải lại đúng file Biên bản thử nghiệm cáp ngầm!")
 
-                with st.expander("⚠️ 4. Nhận định rủi ro & Cách điện", expanded=True):
-                    st.write(data["{{NHAN_DINH}}"])
+st.write("")
 
-                with st.expander("💡 5. Khuyến nghị giải pháp vận hành", expanded=True):
-                    st.write(data["{{KHUYEN_NGHI}}"])
+# --- NÚT BẮT ĐẦU CHẠY PHÂN TÍCH ---
+can_run = st.session_state.qt_valid and st.session_state.bb_valid
 
-                doc_bytes = fill_report_bytes(data)
-                if doc_bytes:
-                    st.download_button(
-                        label="📥 TẢI XUỐNG BÁO CÁO HOÀN THIỆN (.DOCX)",
-                        data=doc_bytes,
-                        file_name=f"Bao_Cao_CBM_{int(time.time())}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        type="primary",
-                        use_container_width=True
-                    )
-                else:
-                    st.info("ℹ️ Không tìm thấy file `Bao_Cao_mau.docx` trong thư mục chạy để tạo file tải về.")
+if st.button("🚀 BẮT ĐẦU THẨM ĐỊNH & PHÂN TÍCH", type="primary", use_container_width=True, disabled=not can_run):
+    status_box = st.status("Đang tiến hành phân tích và thẩm định đối soát...", expanded=True)
+    
+    try:
+        client = genai.Client(api_key=api_key)
 
-        except Exception as e:
-            status_box.update(label="Có lỗi phát sinh!", state="error")
-            st.error(f"❌ Lỗi hệ thống: {e}")
+        status_box.write("⏳ Đang chuẩn bị dữ liệu vào bộ xử lý AI Cloud...")
+        pdf_qt = upload_bytes_to_gemini(client, uploaded_qt)
+        pdf_bb = upload_bytes_to_gemini(client, uploaded_bb)
+
+        system_instruction = """
+        Bạn là Chuyên gia Kiểm định Cáp ngầm Cao thế & Trung thế Bậc cao của EVNHCMC.
+        Nhiệm vụ: Phân tích chỉ tiêu Phóng điện cục bộ (CBM/PD), đối soát nghiêm ngặt quy trình QT-CT-02
+        và thẩm định ĐỘ TRUNG THỰC/CHÍNH XÁC của phần kết luận trên biên bản hiện trường.
+        """
+
+        status_box.write("🧠 Đang bóc tách thông số kỹ thuật và thẩm định tính trung thực của kết luận...")
+        
+        history_context = ""
+        if os.path.exists(KNOWLEDGE_FILE):
+            with open(KNOWLEDGE_FILE, "r", encoding="utf-8") as f:
+                hist = json.load(f)
+                if hist:
+                    history_context = f"\n[LỊCH SỬ ĐỐI SOÁT ĐỂ ĐẢM BẢO NHẤT QUÁN]:\n{json.dumps(hist[-3:], ensure_ascii=False)}"
+
+        main_prompt = f"""
+        Dựa vào Quy trình QT-CT-02 (Tệp 1) và Biên bản Thử nghiệm Phóng điện cục bộ CBM (Tệp 2), hãy thực hiện phân tích chuyên sâu.
+        {history_context}
+
+        Hãy xuất thông tin ĐÚNG BẮT BUỘC theo các thẻ sau:
+
+        [THONG_TIN_CHUNG]
+        Tên tuyến cáp, chủng loại, chiều dài, điện áp vận hành, đơn vị thực hiện, ngày thử nghiệm.
+        [/THONG_TIN_CHUNG]
+
+        [DANH_GIA]
+        Phân tích số liệu CBM chi tiết: Điện áp khởi phát PD, Biên độ phóng điện tối đa (pC hoặc dBmV), vị trí điểm PD (m), tần suất xung. So sánh cụ thể với ngưỡng tiêu chuẩn trong QT-CT-02.
+        [/DANH_GIA]
+
+        [DANH_GIA_KET_LUAN]
+        - Trích dẫn nguyên văn "Nội dung Kết luận" ghi trên Biên bản hiện trường.
+        - Đánh giá Chuyên gia: So sánh kết luận gốc đó với dữ liệu kỹ thuật thực tế đo được.
+        - Khẳng định rõ ràng: Kết luận trên biên bản là KHỚP (Chính xác) hay KHÔNG KHỚP (Sai lệch/Bỏ sót rủi ro/Chẩn đoán Đạt hay Không Đạt sai quy trình QT-CT-02). Nêu rõ lý do.
+        [/DANH_GIA_KET_LUAN]
+
+        [NHAN_DINH]
+        Nhận định chuyên môn về mức độ lão hóa cách điện, rủi ro phóng điện hộp nối/đầu cáp, dự báo nguy cơ sự cố.
+        [/NHAN_DINH]
+
+        [KHUYEN_NGHI]
+        Đề xuất vận hành (Rút ngắn chu kỳ CBM, sửa chữa hộp nối, giảm tải hoặc thay thế).
+        [/KHUYEN_NGHI]
+        """
+
+        chat = client.chats.create(
+            model="gemini-2.5-flash",
+            config=types.GenerateContentConfig(system_instruction=system_instruction)
+        )
+        response = chat.send_message(message=[pdf_qt, pdf_bb, main_prompt])
+        text = response.text
+
+        status_box.update(label="Thẩm định hoàn tất thành công!", state="complete", expanded=False)
+
+        def extract_content(tag, full_text):
+            pattern = rf"\[{tag}\](.*?)\[/{tag}\]"
+            match = re.search(pattern, full_text, re.DOTALL)
+            return match.group(1).strip() if match else "Dữ liệu trống"
+
+        data = {
+            "{{THONG_TIN_CHUNG}}": extract_content("THONG_TIN_CHUNG", text),
+            "{{DANH_GIA}}": extract_content("DANH_GIA", text),
+            "{{DANH_GIA_KET_LUAN}}": extract_content("DANH_GIA_KET_LUAN", text),
+            "{{NHAN_DINH}}": extract_content("NHAN_DINH", text),
+            "{{KHUYEN_NGHI}}": extract_content("KHUYEN_NGHI", text)
+        }
+
+        save_to_knowledge_base({
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "file_bb": uploaded_bb.name,
+            "evaluation_match": data["{{DANH_GIA_KET_LUAN}}"][:250]
+        })
+
+        st.subheader("📑 Kết quả thẩm định & Đối soát kỹ thuật")
+        
+        with st.expander("📌 1. Thông tin chung tuyến cáp", expanded=True):
+            st.write(data["{{THONG_TIN_CHUNG}}"])
+
+        with st.expander("📊 2. Đánh giá số liệu đo CBM so với QT-CT-02", expanded=True):
+            st.write(data["{{DANH_GIA}}"])
+
+        with st.expander("🔍 3. Thẩm định tính chuẩn xác của Kết luận Biên bản", expanded=True):
+            if "KHÔNG KHỚP" in data["{{DANH_GIA_KET_LUAN}}"].upper():
+                st.error(data["{{DANH_GIA_KET_LUAN}}"])
+            else:
+                st.success(data["{{DANH_GIA_KET_LUAN}}"])
+
+        with st.expander("⚠️ 4. Nhận định rủi ro & Cách điện", expanded=True):
+            st.write(data["{{NHAN_DINH}}"])
+
+        with st.expander("💡 5. Khuyến nghị giải pháp vận hành", expanded=True):
+            st.write(data["{{KHUYEN_NGHI}}"])
+
+        doc_bytes = fill_report_bytes(data)
+        if doc_bytes:
+            st.download_button(
+                label="📥 TẢI XUỐNG BÁO CÁO HOÀN THIỆN (.DOCX)",
+                data=doc_bytes,
+                file_name=f"Bao_Cao_CBM_{int(time.time())}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True
+            )
+        else:
+            st.info("ℹ️ Không tìm thấy file `Bao_Cao_mau.docx` trong thư mục chạy để tạo file tải về.")
+
+    except Exception as e:
+        status_box.update(label="Có lỗi phát sinh!", state="error")
+        st.error(f"❌ Lỗi hệ thống: {e}")
