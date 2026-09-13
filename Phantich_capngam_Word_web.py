@@ -27,6 +27,16 @@ if "bb_valid" not in st.session_state:
     st.session_state.bb_name = ""
     st.session_state.bb_msg = ""
 
+def clean_api_key(key: str) -> str:
+    """Loại bỏ triệt để ký tự Cyrillic \u0410 và ký tự ngoài ASCII khỏi API Key"""
+    if not key:
+        return ""
+    # Thay thế chữ Cyrillic 'А' (\u0410) thành chữ Latin 'A' chuẩn
+    k = key.replace('\u0410', 'A')
+    # Lọc bỏ toàn bộ ký tự không thuộc bảng mã ASCII và khoảng trắng thừa
+    k = k.strip().encode('ascii', 'ignore').decode('ascii')
+    return k
+
 def save_to_knowledge_base(record_info):
     try:
         with open(KNOWLEDGE_FILE, "r+", encoding="utf-8") as f:
@@ -66,15 +76,10 @@ def fill_report_bytes(data_dict, template_path="Bao_Cao_mau.docx"):
     return bio
 
 def upload_bytes_to_gemini(client, uploaded_file):
-    # Đặt tên file thuần ASCII 7-bit an toàn tuyệt đối cho HTTP Header
     safe_ascii_name = f"doc_{int(time.time() * 1000)}.pdf"
-    
-    # Đọc trực tiếp byte stream vào io.BytesIO và gán thuộc tính .name bằng tên ASCII
-    file_bytes = uploaded_file.getvalue()
-    bio = io.BytesIO(file_bytes)
+    bio = io.BytesIO(uploaded_file.getvalue())
     bio.name = safe_ascii_name
 
-    # Upload trực tiếp từ stream với config display_name
     file = client.files.upload(
         file=bio,
         config=types.UploadFileConfig(
@@ -82,11 +87,9 @@ def upload_bytes_to_gemini(client, uploaded_file):
             mime_type="application/pdf"
         )
     )
-    
     while file.state.name == "PROCESSING":
         time.sleep(1)
         file = client.files.get(name=file.name)
-        
     return file
 
 def check_qt_validity(client, uploaded_file):
@@ -135,7 +138,8 @@ st.caption("Hệ thống thẩm định tức thì tài liệu đầu vào & Đ�
 
 with st.sidebar:
     st.header("⚙️ Cấu hình hệ thống")
-    api_key = st.text_input("Nhập Google Gemini API Key (AQ... hoặc AIzaSy...):", type="password")
+    raw_api_key = st.text_input("Nhập Google Gemini API Key (AQ... hoặc AIzaSy...):", type="password")
+    api_key = clean_api_key(raw_api_key)
     st.divider()
     st.markdown("**Yêu cầu tệp:**")
     st.markdown("- Quy trình: `QT-CT-02`")
@@ -143,17 +147,7 @@ with st.sidebar:
 
 col1, col2 = st.columns(2)
 
-def clean_api_key(key: str) -> str:
-    if not key:
-        return ""
-    # Chuyển đổi ký tự Cyrillic 'А' (\u0410) sang ký tự Latin 'A' nếu có
-    cleaned = key.replace('\u0410', 'A')
-    # Loại bỏ khoảng trắng và các ký tự ngoài dải ASCII chuẩn
-    cleaned = cleaned.strip().encode('ascii', 'ignore').decode('ascii')
-    return cleaned
-
-
-# --- CỘT 1: UPLOAD VÀ CHECK NGAY FILE QUY TRÌNH ---
+# --- CỘT 1: UPLOAD VÀ CHECK FILE QUY TRÌNH ---
 with col1:
     st.subheader("1. File Quy trình kỹ thuật")
     uploaded_qt = st.file_uploader("Tải lên Quy trình thử nghiệm (PDF)", type=["pdf"], key="qt_file")
@@ -165,8 +159,7 @@ with col1:
             safe_qt_id = f"{uploaded_qt.name}_{uploaded_qt.size}"
             if st.session_state.qt_name != safe_qt_id:
                 with st.spinner("🔍 Đang thẩm định file Quy trình QT-CT-02..."):
-                    valid_key = clean_api_key(api_key)
-                    client_temp = genai.Client(api_key=valid_key)
+                    client_temp = genai.Client(api_key=api_key)
                     res_qt = check_qt_validity(client_temp, uploaded_qt)
                     if res_qt.get("is_qt_ct_02"):
                         st.session_state.qt_valid = True
@@ -182,7 +175,7 @@ with col1:
             else:
                 st.error(f"❌ SAI QUY TRÌNH: {st.session_state.qt_msg}\n\n👉 Vui lòng tải lại đúng file quy trình QT-CT-02!")
 
-# --- CỘT 2: UPLOAD VÀ CHECK NGAY FILE BIÊN BẢN ---
+# --- CỘT 2: UPLOAD VÀ CHECK FILE BIÊN BẢN ---
 with col2:
     st.subheader("2. File Biên bản hiện trường")
     uploaded_bb = st.file_uploader("Tải lên Biên bản thử nghiệm cáp (PDF)", type=["pdf"], key="bb_file")
@@ -212,7 +205,7 @@ with col2:
 
 st.write("")
 
-# --- NÚT BẮT ĐẦU CHẠY PHÂN TÍCH ---
+# --- NÚT BẮT ĐẦU PHÂN TÍCH ---
 can_run = st.session_state.qt_valid and st.session_state.bb_valid
 
 if st.button("🚀 BẮT ĐẦU THẨM ĐỊNH & PHÂN TÍCH", type="primary", use_container_width=True, disabled=not can_run):
