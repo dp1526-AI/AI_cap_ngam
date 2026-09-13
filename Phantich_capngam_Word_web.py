@@ -165,7 +165,8 @@ with col1:
             safe_qt_id = f"{uploaded_qt.name}_{uploaded_qt.size}"
             if st.session_state.qt_name != safe_qt_id:
                 with st.spinner("🔍 Đang thẩm định file Quy trình QT-CT-02..."):
-                    client_temp = genai.Client(api_key=api_key)
+                    valid_key = clean_api_key(api_key)
+                    client_temp = genai.Client(api_key=valid_key)
                     res_qt = check_qt_validity(client_temp, uploaded_qt)
                     if res_qt.get("is_qt_ct_02"):
                         st.session_state.qt_valid = True
