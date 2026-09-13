@@ -101,7 +101,7 @@ def check_qt_validity(client, uploaded_file):
         {"is_qt_ct_02": true/false, "reason": "Giải thích ngắn gọn"}
         """
         chat = client.chats.create(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         res = chat.send_message(message=[pdf_file, prompt])
@@ -121,7 +121,7 @@ def check_bb_validity(client, uploaded_file):
         {"is_cable_report": true/false, "reason": "Giải thích ngắn gọn"}
         """
         chat = client.chats.create(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         res = chat.send_message(message=[pdf_file, prompt])
@@ -263,7 +263,7 @@ if st.button("🚀 BẮT ĐẦU THẨM ĐỊNH & PHÂN TÍCH", type="primary", u
         """
 
         chat = client.chats.create(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             config=types.GenerateContentConfig(system_instruction=system_instruction)
         )
         response = chat.send_message(message=[pdf_qt, pdf_bb, main_prompt])
