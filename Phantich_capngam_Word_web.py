@@ -64,17 +64,26 @@ def fill_report_bytes(data_dict, template_path="Bao_Cao_mau.docx"):
     return bio
 
 def upload_bytes_to_gemini(client, uploaded_file):
+    # Tạo tên tạm thời an toàn thuần ASCII
+    safe_ascii_name = f"doc_{int(time.time()*1000)}.pdf"
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(uploaded_file.getvalue())
         tmp_path = tmp.name
 
-    file = client.files.upload(file=tmp_path)
-    while file.state.name == "PROCESSING":
-        time.sleep(1)
-        file = client.files.get(name=file.name)
-    
-    os.remove(tmp_path)
-    return file
+    try:
+        # Chỉ định rõ display_name thuần ASCII để triệt tiêu lỗi mã hóa tiêu đề HTTP
+        file = client.files.upload(
+            file=tmp_path,
+            config=types.UploadFileConfig(display_name=safe_ascii_name)
+        )
+        while file.state.name == "PROCESSING":
+            time.sleep(1)
+            file = client.files.get(name=file.name)
+        return file
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 def check_qt_validity(client, uploaded_file):
     try:
