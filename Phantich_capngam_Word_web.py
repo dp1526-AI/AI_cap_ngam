@@ -21,9 +21,11 @@ if not os.path.exists(KNOWLEDGE_FILE):
 if "qt_valid" not in st.session_state:
     st.session_state.qt_valid = False
     st.session_state.qt_name = ""
+    st.session_state.qt_msg = ""
 if "bb_valid" not in st.session_state:
     st.session_state.bb_valid = False
     st.session_state.bb_name = ""
+    st.session_state.bb_msg = ""
 
 def save_to_knowledge_base(record_info):
     try:
@@ -64,29 +66,22 @@ def fill_report_bytes(data_dict, template_path="Bao_Cao_mau.docx"):
     return bio
 
 def upload_bytes_to_gemini(client, uploaded_file):
-    # 1. Khởi tạo tên hiển thị an toàn 100% bằng ký tự ASCII
     safe_ascii_name = f"doc_{int(time.time() * 1000)}.pdf"
     
-    # 2. Ghi dữ liệu ra file tạm
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(uploaded_file.getvalue())
         tmp_path = tmp.name
 
     try:
-        # 3. Chỉ định rõ display_name thuần ASCII để chặn triệt để lỗi mã hóa header
         file = client.files.upload(
             file=tmp_path,
             config=types.UploadFileConfig(display_name=safe_ascii_name)
         )
-        
-        # 4. Chờ Google AI xử lý xong tệp
         while file.state.name == "PROCESSING":
             time.sleep(1)
             file = client.files.get(name=file.name)
-            
         return file
     finally:
-        # 5. Luôn dọn dẹp file tạm trên máy chủ
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
@@ -150,19 +145,27 @@ with col1:
     uploaded_qt = st.file_uploader("Tải lên Quy trình thử nghiệm (PDF)", type=["pdf"], key="qt_file")
     
     if uploaded_qt:
-    safe_qt_id = f"{uploaded_qt.name}_{uploaded_qt.size}"
-    if st.session_state.qt_name != safe_qt_id:
-        with st.spinner("🔍 Đang thẩm định file Quy trình QT-CT-02..."):
-            client_temp = genai.Client(api_key=api_key)
-            res_qt = check_qt_validity(client_temp, uploaded_qt)
-            if res_qt.get("is_qt_ct_02"):
-                st.session_state.qt_valid = True
-                st.session_state.qt_name = safe_qt_id
-                st.session_state.qt_msg = res_qt.get("reason", "Quy trình hợp lệ.")
+        if not api_key:
+            st.warning("⚠️ Vui lòng nhập API Key ở thanh bên trái trước để hệ thống thẩm định file.")
+        else:
+            safe_qt_id = f"{uploaded_qt.name}_{uploaded_qt.size}"
+            if st.session_state.qt_name != safe_qt_id:
+                with st.spinner("🔍 Đang thẩm định file Quy trình QT-CT-02..."):
+                    client_temp = genai.Client(api_key=api_key)
+                    res_qt = check_qt_validity(client_temp, uploaded_qt)
+                    if res_qt.get("is_qt_ct_02"):
+                        st.session_state.qt_valid = True
+                        st.session_state.qt_name = safe_qt_id
+                        st.session_state.qt_msg = res_qt.get("reason", "Quy trình hợp lệ.")
+                    else:
+                        st.session_state.qt_valid = False
+                        st.session_state.qt_name = safe_qt_id
+                        st.session_state.qt_msg = res_qt.get("reason", "Không phải quy trình QT-CT-02.")
+            
+            if st.session_state.qt_valid:
+                st.success(f"✅ Hợp lệ: {st.session_state.qt_msg}")
             else:
-                st.session_state.qt_valid = False
-                st.session_state.qt_name = safe_qt_id
-                st.session_state.qt_msg = res_qt.get("reason", "Không phải quy trình QT-CT-02.")
+                st.error(f"❌ SAI QUY TRÌNH: {st.session_state.qt_msg}\n\n👉 Vui lòng tải lại đúng file quy trình QT-CT-02!")
 
 # --- CỘT 2: UPLOAD VÀ CHECK NGAY FILE BIÊN BẢN ---
 with col2:
@@ -173,17 +176,18 @@ with col2:
         if not api_key:
             st.warning("⚠️ Vui lòng nhập API Key ở thanh bên trái trước để hệ thống thẩm định file.")
         else:
-            if st.session_state.bb_name != uploaded_bb.name:
+            safe_bb_id = f"{uploaded_bb.name}_{uploaded_bb.size}"
+            if st.session_state.bb_name != safe_bb_id:
                 with st.spinner("🔍 Đang thẩm định file Biên bản thử nghiệm cáp ngầm..."):
                     client_temp = genai.Client(api_key=api_key)
                     res_bb = check_bb_validity(client_temp, uploaded_bb)
                     if res_bb.get("is_cable_report"):
                         st.session_state.bb_valid = True
-                        st.session_state.bb_name = uploaded_bb.name
+                        st.session_state.bb_name = safe_bb_id
                         st.session_state.bb_msg = res_bb.get("reason", "Biên bản hợp lệ.")
                     else:
                         st.session_state.bb_valid = False
-                        st.session_state.bb_name = uploaded_bb.name
+                        st.session_state.bb_name = safe_bb_id
                         st.session_state.bb_msg = res_bb.get("reason", "Không phải biên bản thử nghiệm cáp ngầm.")
             
             if st.session_state.bb_valid:
@@ -309,7 +313,7 @@ if st.button("🚀 BẮT ĐẦU THẨM ĐỊNH & PHÂN TÍCH", type="primary", u
                 use_container_width=True
             )
         else:
-            st.info("ℹ️ Không tìm thấy file `Bao_Cao_mau.docx` trong thư mục chạy để tạo file tải về.")
+            st.info("ℹ️ Không tìm thấy file `Bao_Cao_mau.docx` trong thư mục chạy để tạo file tải về.")[cite: 4]
 
     except Exception as e:
         status_box.update(label="Có lỗi phát sinh!", state="error")
