@@ -143,6 +143,16 @@ with st.sidebar:
 
 col1, col2 = st.columns(2)
 
+def clean_api_key(key: str) -> str:
+    if not key:
+        return ""
+    # Chuyển đổi ký tự Cyrillic 'А' (\u0410) sang ký tự Latin 'A' nếu có
+    cleaned = key.replace('\u0410', 'A')
+    # Loại bỏ khoảng trắng và các ký tự ngoài dải ASCII chuẩn
+    cleaned = cleaned.strip().encode('ascii', 'ignore').decode('ascii')
+    return cleaned
+
+
 # --- CỘT 1: UPLOAD VÀ CHECK NGAY FILE QUY TRÌNH ---
 with col1:
     st.subheader("1. File Quy trình kỹ thuật")
