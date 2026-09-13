@@ -66,24 +66,28 @@ def fill_report_bytes(data_dict, template_path="Bao_Cao_mau.docx"):
     return bio
 
 def upload_bytes_to_gemini(client, uploaded_file):
+    # Đặt tên file thuần ASCII 7-bit an toàn tuyệt đối cho HTTP Header
     safe_ascii_name = f"doc_{int(time.time() * 1000)}.pdf"
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    # Đọc trực tiếp byte stream vào io.BytesIO và gán thuộc tính .name bằng tên ASCII
+    file_bytes = uploaded_file.getvalue()
+    bio = io.BytesIO(file_bytes)
+    bio.name = safe_ascii_name
 
-    try:
-        file = client.files.upload(
-            file=tmp_path,
-            config=types.UploadFileConfig(display_name=safe_ascii_name)
+    # Upload trực tiếp từ stream với config display_name
+    file = client.files.upload(
+        file=bio,
+        config=types.UploadFileConfig(
+            display_name=safe_ascii_name,
+            mime_type="application/pdf"
         )
-        while file.state.name == "PROCESSING":
-            time.sleep(1)
-            file = client.files.get(name=file.name)
-        return file
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    )
+    
+    while file.state.name == "PROCESSING":
+        time.sleep(1)
+        file = client.files.get(name=file.name)
+        
+    return file
 
 def check_qt_validity(client, uploaded_file):
     try:
